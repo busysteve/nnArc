@@ -14,9 +14,32 @@ The acceptance suite is MNIST. `./build/nn_tests shapes`, `grads`, and `ckpt` ar
 - `intel-oneapi-dpcpp-cpp`, which provides the SYCL compiler `icpx`
 - `intel-oneapi-compiler-dpcpp-cpp-runtime`, the DPC++ runtime
 - `intel-oneapi-mkl-sycl`, oneMKL SYCL BLAS. The CMake config comes from `intel-oneapi-mkl`. The link target is `MKL::MKL_SYCL::BLAS`.
-- `intel-compute-runtime`, which brings `intel-graphics-compiler`, so an Intel GPU is visible to Level Zero
+- `intel-compute-runtime`, which brings `intel-graphics-compiler`, so an Intel GPU is visible to Level Zero. Ubuntu archive names for that stack are in the Ubuntu section below.
 - One Intel GPU per `Context`. The device list is Intel GPUs whose vendor string contains `intel`. A discrete Arc and an integrated Iris Xe both qualify. Opening a device throws `device` when its maximum work-group size is below 256 or no subgroup size from 8 through 32 divides 256. An empty list throws `device`. SYCL has no process-wide current device. `Context()` opens index 0. `Context(int device)` and `Context(string)` open that index. `detect_devices()` lists those GPUs. `select_device("auto")` and `Context("auto")` use the first. `select_device("1")` and `Context("1")` are manual. `device_count()` is the length of that list. An index outside it, or a choice that is neither `auto` nor a decimal index, throws `device`.
 - float32, NCHW, one in-order SYCL queue per `Context`
+
+### Ubuntu
+
+Ubuntu 24.04 and newer match these requirements from the archive. Their `cmake` package is 3.24 or newer. Ubuntu 22.04 ships CMake 3.22.
+
+The oneAPI packages are published in Intel's apt repository, `https://apt.repos.intel.com/oneapi`. Add that repository, then install the compiler, the DPC++ runtime, and oneMKL. `intel-oneapi-mkl-sycl` depends on `intel-oneapi-mkl`, which provides the CMake package that defines `MKL::MKL_SYCL::BLAS`.
+
+```bash
+sudo apt update
+sudo apt install gnupg wget
+wget -O- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+  | gpg --dearmor | sudo tee /usr/share/keyrings/oneapi-archive-keyring.gpg > /dev/null
+echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" \
+  | sudo tee /etc/apt/sources.list.d/oneAPI.list
+sudo apt update
+sudo apt install intel-oneapi-dpcpp-cpp intel-oneapi-compiler-dpcpp-cpp-runtime intel-oneapi-mkl intel-oneapi-mkl-sycl
+```
+
+Install the host tools and the Level Zero GPU stack from the Ubuntu archive (`universe`). `libze1` is the Level Zero loader. `libze-intel-gpu1` is the Intel GPU driver, built from the `intel-compute-runtime` source package, and it depends on `libigdgmm12`. `libigc1` is the Intel graphics compiler, built from the `intel-graphics-compiler` source package. The same compute-runtime source also builds `intel-opencl-icd` and `intel-ocloc`. This library loads the GPU through `libze1` and `libze-intel-gpu1`. The account that runs a program needs access to `/dev/dri/renderD*`. Membership in the `render` group provides that.
+
+```bash
+sudo apt install cmake build-essential pkg-config libze1 libze-intel-gpu1 libigc1
+```
 
 Kernels are JIT-compiled to SPIR-V (`spir64`). There is no ahead-of-time architecture. One binary covers Arc SKUs and Iris Xe. CMake selects `icpx` from `/opt/intel/oneapi/compiler/latest/bin/icpx`, then `/opt/intel/oneapi/compiler/2026.0/bin/icpx`, when `CMAKE_CXX_COMPILER` is unset. If the SYCL runtime is not on the default loader path, `source /opt/intel/oneapi/setvars.sh` before you run a program.
 
