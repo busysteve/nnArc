@@ -1,6 +1,6 @@
 # Usage
 
-This is the programmer's guide for the Intel Arc tree, nnArc. The types are the same C++17 API as [nnCUDA](https://github.com/busysteve/nnCUDA), [nnCL](https://github.com/busysteve/nnCL), and [nnROCm](https://github.com/busysteve/nnROCm). Every type lives in a header under `include/nn/`. Those headers are plain C++17. Build steps, numeric details, the checkpoint byte layout, and the MNIST suite are in [README.md](README.md).
+This is the programmer's guide for the Intel Arc tree, nnArc. The layer, loss, optimizer, and checkpoint calls match [nnCUDA](https://github.com/busysteve/nnCUDA), [nnCL](https://github.com/busysteve/nnCL), and [nnROCm](https://github.com/busysteve/nnROCm). This tree has no `nn/dtype.hpp` and no `Context::set_activation_dtype`. Activations stay float32. Those three trees store retained activations as bfloat16 by default. Every type lives in a header under `include/nn/`. Those headers are plain C++17. Build steps, numeric details, the checkpoint byte layout, and the MNIST suite are in [README.md](README.md).
 
 Link the CMake target `nn`. It carries `MKL::MKL_SYCL::BLAS` and `-fsycl`. A program that links `libnn.a` by hand also links oneMKL SYCL BLAS and passes `-fsycl`.
 

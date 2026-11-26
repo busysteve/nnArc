@@ -9,9 +9,9 @@ This is the contract of the C++ API in namespace `nn`. Four libraries implement 
 | `nnROCm` | [busysteve/nnROCm](https://github.com/busysteve/nnROCm) | HIP, hipBLAS, rocBLAS |
 | `nnArc` | this tree | SYCL, oneMKL |
 
-The public headers under `include/nn/` are the same in all four trees. The only header that differs is `nn/context.hpp`, and the difference is comments. A checkpoint written by one library loads in the others. `src/checkpoint.cpp` is the same file in all four trees.
+`nnCUDA`, `nnCL`, and `nnROCm` share the public headers. Among those three, the only header that differs is `nn/context.hpp`, and the difference is comments. This tree has no `include/nn/dtype.hpp` and no `Context::set_activation_dtype`. Activations stay float32. `src/checkpoint.cpp` is the same file in all four trees, so a checkpoint written by one loads in the others.
 
-Each tree has a `USAGE.md`. This document is the contract. It includes the Qwen-style attention fields and checkpoint versions 1 through 8.
+`USAGE.md` in `nnCUDA`, `nnROCm`, and this tree is the programmer's guide for that tree. `nnCL` documents the build in `README.md` and the call contract in `docs/api.md`. This document includes the Qwen-style attention fields and checkpoint versions 1 through 8.
 
 The CMake target is `nn` in every tree. Headers do not include CUDA, HIP, OpenCL, SYCL, cuBLAS, hipBLAS, cuDNN, or oneMKL headers. A program that links `libnn.a` by hand also links the backend libraries that archive was built against: `CUDA::cudart`, `CUDA::cublas`, and cuDNN for `nn`; the OpenCL loader for `nnCL`; `roc::hipblas` and `roc::rocblas` for `nnROCm`; `MKL::MKL_SYCL::BLAS` and the SYCL runtime (`-fsycl`) for `nnArc`.
 
@@ -27,7 +27,7 @@ Create one `Context`. Pass that same `Context&` to every tensor, index buffer, l
 
 Weight and bias gradients accumulate. Call `zero_grad` once per step. `zero_grad` does not change parameter values, optimizer state, or batch-norm buffers. A new network is in train mode. Call `eval()` before inference when the network contains batch-norm or dropout.
 
-Storage is dense float32. Index buffers are dense `int64`. Layout:
+Storage on this tree is dense float32. There is no `dtype.hpp`. `nnCUDA`, `nnCL`, and `nnROCm` store retained activations as bfloat16 unless `set_activation_dtype(Float32)` selects float32. Their parameters, Adam state, and checkpoints stay float32. Index buffers are dense `int64`. Layout:
 
 | Rank | Shape | Order |
 |---|---|---|
@@ -86,12 +86,13 @@ class Context {
 | Visible devices | Every visible CUDA device. | Devices accepted by the build filter below. | Every visible HIP device. | Intel GPUs. Opening one that cannot run a 256-thread work-group throws `device`. |
 | Queue | One non-default CUDA stream, plus a cuDNN handle and a cuBLAS handle bound to it. | One in-order OpenCL command queue. | One non-default HIP stream, plus a hipBLAS handle bound to it. | One in-order SYCL queue. |
 | `data()` | A CUDA device pointer. A CUDA caller may `cudaMemcpy` it on this stream. | Not a host pointer. Read it with `to_host()`. | A HIP device pointer. A HIP caller may `hipMemcpy` it on this stream. | A device USM pointer. Read it with `to_host()`. |
+| Activations | bfloat16 by default | bfloat16 by default | bfloat16 by default | float32. No `dtype.hpp`. |
 
 `nnCL` device filter. The CMake cache variable `NNCL_OPENCL` is `auto`, `radeon`, `intel`, `apple`, or `nvidia`. It is fixed at compile time. `auto` keeps GPUs and does not keep a CPU device. `radeon`, `apple`, and `nvidia` keep that vendor's GPUs. `intel` keeps an Intel GPU, or the Intel CPU device when no Intel GPU is listed. A device is kept only when its max work-group size is at least 256. A requested vendor that is not installed fails at context creation with `device`. The kernel source is `src/kernels.cl`, compiled at runtime with `-cl-std=CL1.2` or `-cl-std=CL2.0` from the device's OpenCL C version. A device that reports 2.0 or 3.0 is built as OpenCL C 2.0. A 1.2 device is built as OpenCL C 1.2. An Apple host includes `<OpenCL/cl.h>` and creates the queue with `clCreateCommandQueue`. Other hosts use the OpenCL 3.0 headers and `clCreateCommandQueueWithProperties`.
 
 `nnROCm` devices. `device_count()` is `hipGetDeviceCount`. There is no vendor filter. The default CMake architecture is `gfx1152` (`CMAKE_HIP_ARCHITECTURES`). `Context()` does not call `hipSetDevice`. `Context(int)` and `Context(string)` do. The queue is one non-default HIP stream. The hipBLAS handle is bound to that stream, uses host pointer mode, and disallows atomics so a repeated GEMM matches. `rocblas_initialize()` runs when the context opens. `data()` is a HIP device pointer.
 
-`nnArc` devices. The list is Intel GPUs whose vendor string contains `intel`, compared case-insensitively. A discrete Arc and an integrated Iris Xe both qualify. Opening a device throws `device` when its maximum work-group size is below 256 or no subgroup size in 8..32 divides 256. An empty list throws `device`. There is no process-wide current device. `Context()` opens index 0. `Context(int)` and `Context(string)` open that index and do not reorder other devices. The queue is one in-order SYCL queue (`sycl::property::queue::in_order`). Device memory is USM from `sycl::malloc_device`. `data()` is a device USM pointer. Read it with `to_host()`. Kernels are JIT-compiled to SPIR-V (`spir64`). There is no ahead-of-time architecture, so one binary covers Arc SKUs and Iris Xe. GEMM is oneMKL SYCL BLAS in float32. A stride of 0 is a loop of single GEMMs, because strided `gemm_batch` does not promise a zero stride. There is no TF32 mode.
+`nnArc` devices. The list is Intel GPUs whose vendor string contains `intel`, compared case-insensitively. A discrete Arc and an integrated Iris Xe both qualify. Opening a device throws `device` when its maximum work-group size is below 256 or no subgroup size in 8..32 divides 256. An empty list throws `device`. There is no process-wide current device. `Context()` opens index 0. `Context(int)` and `Context(string)` open that index and do not reorder other devices. The queue is one in-order SYCL queue (`sycl::property::queue::in_order`). Device memory is USM from `sycl::malloc_device`. `data()` is a device USM pointer. Read it with `to_host()`. Kernels are JIT-compiled to SPIR-V (`spir64`). There is no ahead-of-time architecture, so one binary covers Arc SKUs and Iris Xe. GEMM is oneMKL SYCL BLAS in float32. A stride of 0 is a loop of single GEMMs, because strided `gemm_batch` does not promise a zero stride. There is no TF32 mode. This tree has no `dtype.hpp` and no `set_activation_dtype`. Activations stay float32.
 
 `select_device("auto")` is the first device in the list above. It is not the `NNCL_OPENCL` vendor filter.
 
